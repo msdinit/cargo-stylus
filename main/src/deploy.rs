@@ -89,16 +89,18 @@ pub async fn deploy(cfg: DeployConfig) -> Result<()> {
 
     match contract {
         ContractCheck::Ready { .. } => {
-            if cfg.no_activate {
-                mintln!(
-                    r#"NOTE: You must activate the stylus contract before calling it. To do so, we recommend running:
-cargo stylus activate --address {}"#,
-                    hex::encode(contract_addr)
-                );
-            } else {
-                cfg.activate(sender, contract_addr, data_fee, &client)
-                    .await?
-            }
+            cfg.activate(sender, contract_addr, data_fee, &client)
+                .await?
+//             if cfg.no_activate {
+//                 mintln!(
+//                     r#"NOTE: You must activate the stylus contract before calling it. To do so, we recommend running:
+// cargo stylus activate --address {}"#,
+//                     hex::encode(contract_addr)
+//                 );
+//             } else {
+//                 cfg.activate(sender, contract_addr, data_fee, &client)
+//                     .await?
+//             }
         }
         ContractCheck::Active { .. } => greyln!("wasm already activated!"),
     }

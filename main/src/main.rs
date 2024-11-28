@@ -716,7 +716,7 @@ pub fn build_shared_library(path: &Path) -> Result<()> {
 pub fn find_shared_library(project: &Path, extension: &str) -> Result<PathBuf> {
     let triple = rustc_host::from_cli()?;
     // todo
-    let so_dir = project.join(format!("target/{triple}/debug/"));
+    let so_dir = project.join(format!("/home/msd/RustroverProjects/tacans/derivatives-sc-core/cvex/methods/do_create_order3/target/x86_64-unknown-linux-gnu/debug"));
     let so_dir = std::fs::read_dir(&so_dir)
         .map_err(|e| eyre!("failed to open {}: {e}", so_dir.to_string_lossy()))?
         .filter_map(|r| r.ok())

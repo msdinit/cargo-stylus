@@ -39,7 +39,7 @@ pub async fn activate_contract(cfg: &ActivateConfig) -> Result<()> {
     let client = SignerMiddleware::new(provider.clone(), wallet);
 
     let code = client.get_code(cfg.address, None).await?;
-    let data_fee = check_activate(code, cfg.address, &cfg.data_fee, &provider).await?;
+    let data_fee = check_activate(code, cfg.address, &provider).await?;
 
     let contract: Address = cfg.address.to_fixed_bytes().into();
     let data = ArbWasm::activateProgramCall { program: contract }.abi_encode();

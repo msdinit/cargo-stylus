@@ -10,7 +10,7 @@ use crate::{
         color::{Color, GREY, LAVENDER},
         sys, text,
     },
-    CheckConfig, DataFeeOpts,
+    CheckConfig,
 };
 use alloy_primitives::{Address, B256, U256};
 use alloy_sol_macro::sol;
@@ -90,7 +90,7 @@ pub async fn check(cfg: &CheckConfig) -> Result<ContractCheck> {
     }
 
     let address = cfg.contract_address.unwrap_or(H160::random());
-    let fee = check_activate(code.clone().into(), address, &cfg.data_fee, &provider).await?;
+    let fee = check_activate(code.clone().into(), address, &provider).await?;
     Ok(ContractCheck::Ready { code, fee })
 }
 
@@ -253,7 +253,7 @@ Perhaps the Arbitrum node for the endpoint you are connecting to has not yet upg
 pub async fn check_activate(
     code: Bytes,
     address: H160,
-    opts: &DataFeeOpts,
+    // opts: &DataFeeOpts,
     provider: &Provider<Http>,
 ) -> Result<U256> {
     let contract = Address::from(address.to_fixed_bytes());
@@ -268,10 +268,10 @@ pub async fn check_activate(
         dataFee: data_fee, ..
     } = ArbWasm::activateProgramCall::abi_decode_returns(&outs, true)?;
 
-    let bump = opts.data_fee_bump_percent;
-    let adjusted_data_fee = data_fee * U256::from(100 + bump) / U256::from(100);
+    // let bump = opts.data_fee_bump_percent;
+    let adjusted_data_fee = data_fee * U256::from(100 + 0) / U256::from(100);
     greyln!(
-        "wasm data fee: {} {GREY}(originally {}{GREY} with {LAVENDER}{bump}%{GREY} bump)",
+        "wasm data fee: {} {GREY}(originally {}{GREY} with {LAVENDER}{0}%{GREY} bump)",
         format_data_fee(adjusted_data_fee),
         format_data_fee(data_fee)
     );
