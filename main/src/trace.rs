@@ -60,10 +60,10 @@ impl Trace {
             }
         }
 
-        let maybe_activation_trace: Result<Vec<ActivationTraceFrame>, _> = from_value(json.clone());
-        if maybe_activation_trace.is_ok() {
-            bail!("Your tx was a contract activation transaction. It has no trace frames");
-        }
+        // let maybe_activation_trace: Result<Vec<ActivationTraceFrame>, _> = from_value(json.clone());
+        // if maybe_activation_trace.is_ok() {
+        //     bail!("Your tx was a contract activation transaction. It has no trace frames");
+        // }
 
         let to = receipt.to.map(|x| Address::from(x.0));
         let top_frame = TraceFrame::parse_frame(to, json.clone())?;
@@ -79,6 +79,7 @@ impl Trace {
         FrameReader {
             steps: self.top_frame.steps.clone().into(),
             frame: self.top_frame,
+            frame_stack: Vec::new()
         }
     }
     pub async fn simulate<T: JsonRpcClient>(
@@ -736,14 +737,71 @@ pub enum HostioKind {
 pub struct FrameReader {
     frame: TraceFrame,
     steps: VecDeque<Hostio>,
+    frame_stack: Vec<FrameReader>,
 }
 
 impl FrameReader {
-    fn next(&mut self) -> Result<Hostio> {
+    pub fn next(&mut self) -> Result<Hostio> {
         match self.steps.pop_front() {
             Some(item) => Ok(item),
             None => bail!("No next hostio"),
         }
+    }
+
+    fn next_frameaware(&mut self) -> Result<Hostio> {
+
+        let mut next = None;
+
+        if let Some(subframe) = self.frame_stack.last_mut() {
+            next = subframe.next().ok().clone();
+        }
+
+        if next.is_none() {
+            self.frame_stack.pop();
+        }
+
+        if !self.frame_stack.is_empty() && next.is_none() {
+            return self.next_frameaware();
+        }
+
+        if next.is_none() {
+            next = self.next().ok();
+        }
+
+        if let Some(HostioKind::DelegateCallContract {frame, ..}) = next.as_ref().map(|next| &next.kind) {
+            self.frame_stack.push(FrameReader {
+                steps: frame.steps.clone().into(),
+                frame: frame.clone(),
+                frame_stack: Vec::new()
+            })
+        }
+
+        if let Some(HostioKind::EVMCall {frame, name}) = next.as_ref().map(|next| &next.kind) {
+            if name == "evm_delegate_call_contract" {
+                self.frame_stack.push(FrameReader {
+                    steps: frame.steps.clone().into(),
+                    frame: frame.clone(),
+                    frame_stack: Vec::new()
+                })
+            }
+        }
+
+        match next {
+            Some(item) => Ok(item),
+            None => bail!("No next hostio"),
+        }
+    }
+
+    pub fn find_delegate(&mut self, addr: &'static str) -> Hostio {
+        while let Ok(item) = self.next_frameaware() {
+            let HostioKind::DelegateCallContract { address, .. } = item.kind else {
+                continue;
+            };
+            if address.to_string().to_lowercase() == addr {
+                return item;
+            }
+        }
+        panic!("nope")
     }
 
     pub fn next_hostio(&mut self, expected: &'static str) -> Hostio {
@@ -759,7 +817,7 @@ impl FrameReader {
         }
 
         loop {
-            let Ok(hostio) = self.next() else {
+            let Ok(hostio) = self.next_frameaware() else {
                 detected(self, expected);
                 println!("However, no such call is made onchain. Are you sure this the right contract?\n");
                 panic!();
@@ -799,7 +857,7 @@ mod tests {
             "args": "0xfafafafafafafafafafafafafafafafafafafafafafafafafafafafafafafafa",
             "outs": "0xebebebebebebebebebebebebebebebebebebebebebebebebebebebebebebebeb",
             "startInk": 1000,
-            "endInk": 900 
+            "endInk": 900
           }
         ]"#;
         let json = serde_json::from_str(trace).expect("failed to parse json");

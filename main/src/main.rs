@@ -1,9 +1,6 @@
 // Copyright 2023-2024, Offchain Labs, Inc.
 // For licensing, see https://github.com/OffchainLabs/cargo-stylus/blob/main/licenses/COPYRIGHT.md
 
-// Enable unstable test feature for benchmarks when nightly is available
-#![cfg_attr(feature = "nightly", feature(test))]
-
 use alloy_primitives::TxHash;
 use clap::{ArgGroup, Args, CommandFactory, Parser, Subcommand};
 use constants::DEFAULT_ENDPOINT;
@@ -25,6 +22,8 @@ use std::{env, os::unix::process::CommandExt};
 // Conditional import for Windows
 #[cfg(windows)]
 use std::env;
+use crate::hostio::FRAME;
+use crate::trace::HostioKind;
 
 mod activate;
 mod cache;
@@ -184,14 +183,15 @@ pub struct CacheSuggestionsConfig {
 pub struct ActivateConfig {
     #[command(flatten)]
     common_cfg: CommonConfig,
-    #[command(flatten)]
-    data_fee: DataFeeOpts,
     /// Wallet source to use.
     #[command(flatten)]
     auth: AuthOpts,
     /// Deployed Stylus contract address to activate.
     #[arg(long)]
     address: H160,
+    /// Percent to bump the estimated activation data fee by. Default of 20%
+    #[arg(long, default_value = "20")]
+    data_fee_bump_percent: u64,
     /// Whether or not to just estimate gas without sending a tx.
     #[arg(long)]
     estimate_gas: bool,
@@ -201,8 +201,6 @@ pub struct ActivateConfig {
 pub struct CheckConfig {
     #[command(flatten)]
     common_cfg: CommonConfig,
-    #[command(flatten)]
-    data_fee: DataFeeOpts,
     /// The WASM to check (defaults to any found in the current directory).
     #[arg(long)]
     wasm_file: Option<PathBuf>,
@@ -229,9 +227,6 @@ struct DeployConfig {
     /// If not set, uses the default version of the local cargo stylus binary.
     #[arg(long)]
     cargo_stylus_version: Option<String>,
-    /// If set, do not activate the program after deploying it
-    #[arg(long)]
-    no_activate: bool,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -316,13 +311,6 @@ pub struct SimulateArgs {
     /// If set, use the native tracer instead of the JavaScript one.
     #[arg(short, long, default_value_t = false)]
     use_native_tracer: bool,
-}
-
-#[derive(Clone, Debug, Args)]
-struct DataFeeOpts {
-    /// Percent to bump the estimated activation data fee by.
-    #[arg(long, default_value = "20")]
-    data_fee_bump_percent: u64,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -636,7 +624,7 @@ async fn replay(args: ReplayArgs) -> Result<()> {
             "-ex=r",
             "--args",
         ]
-        .as_slice();
+            .as_slice();
         let lldb_args = [
             "--source-quietly",
             "-o",
@@ -645,7 +633,7 @@ async fn replay(args: ReplayArgs) -> Result<()> {
             "r",
             "--",
         ]
-        .as_slice();
+            .as_slice();
         let (cmd_name, args) = if sys::command_exists("rust-gdb") && !macos {
             ("rust-gdb", &gdb_args)
         } else if sys::command_exists("rust-lldb") {
@@ -681,15 +669,22 @@ async fn replay(args: ReplayArgs) -> Result<()> {
     let provider = sys::new_provider(&args.trace.endpoint)?;
     let trace = Trace::new(provider, args.trace.tx, args.trace.use_native_tracer).await?;
 
-    build_shared_library(&args.trace.project)?;
+    // build_shared_library(&args.trace.project)?;
     let library_extension = if macos { ".dylib" } else { ".so" };
     let shared_library = find_shared_library(&args.trace.project, library_extension)?;
 
     // TODO: don't assume the contract is top-level
-    let args_len = trace.tx.input.len();
+    // let args_len = trace.tx.input.len();
 
     unsafe {
         *hostio::FRAME.lock() = Some(trace.reader());
+        // let deleg = FRAME.lock().as_mut().unwrap().find_delegate("0x17d8c5316c1a7003d263f3618c7219de7e524959"); // cancel_order_private
+        // let deleg = FRAME.lock().as_mut().unwrap().find_delegate("0xc456936799903c57e38db2fbb9d0afd44fcaf326"); // update_order
+        let deleg = FRAME.lock().as_mut().unwrap().find_delegate("0xe022d36faee1019e5ce59b03565f3b190235f45c");
+        let HostioKind::DelegateCallContract { address, data, .. } = &deleg.kind else {
+            panic!("nope wtf haha");
+        };
+        let args_len = data.len();
 
         type Entrypoint = unsafe extern "C" fn(usize) -> usize;
         let lib = libloading::Library::new(shared_library)?;
@@ -720,6 +715,7 @@ pub fn build_shared_library(path: &Path) -> Result<()> {
 
 pub fn find_shared_library(project: &Path, extension: &str) -> Result<PathBuf> {
     let triple = rustc_host::from_cli()?;
+    // todo
     let so_dir = project.join(format!("target/{triple}/debug/"));
     let so_dir = std::fs::read_dir(&so_dir)
         .map_err(|e| eyre!("failed to open {}: {e}", so_dir.to_string_lossy()))?
